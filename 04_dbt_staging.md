@@ -228,6 +228,7 @@ renamed AS (
     -- Ecommerce fields (populated on purchase events)
     ecommerce.transaction_id,
     ecommerce.purchase_revenue,
+    ecommerce.purchase_revenue_in_usd    AS purchase_revenue_usd,
     ecommerce.unique_items
 
   FROM source
