@@ -861,6 +861,57 @@ Now it uses `dbt_ga4.fct_sessions` with `SUM(converted) / COUNT(session_id)` —
 
 This is the point: Vanna's SQL accuracy is a direct output of your `_marts.yml` description quality.
 
+## Part 7: Flask Web UI (Recommended)
+
+Instead of using only the terminal demo, you can launch a clean, ChatGPT-style web interface using Flask.
+
+### Step 7.1 — Create the Flask App File
+
+Inside the `vanna/` folder, create a new file named **`app.py`** and paste the following code:
+
+```python
+"""
+Vanna AI - Flask Web UI for GA4 ShopStream Analytics
+Provides a clean, interactive chat interface.
+"""
+
+from config import get_vanna_instance
+from vanna.flask import VannaFlaskApp
+
+# Initialize Vanna instance
+vn = get_vanna_instance()
+
+# Launch the Flask web application
+app = VannaFlaskApp(vn)
+
+# Run the app (default port: 8084)
+app.run()
+```
+
+### Step 7.2 — Run the Flask UI
+
+Make sure vanna_env is activated, then run:
+```
+Bashsource vanna_env/bin/activate
+python vanna/app.py
+```
+
+Step 7.3 — Access the UI
+
+Open your browser and go to:
+```
+http://localhost:8084
+```
+You can now ask questions in natural language and see the generated SQL and results in a nice web interface.
+
+### Optional: Change the Port
+
+If you want to run on a different port, edit the last line in app.py to:
+
+```
+Pythonapp.run(port=5000)
+Then open http://localhost:5000 in your browser.
+```
 ---
 
 ## Checklist
