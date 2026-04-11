@@ -896,7 +896,7 @@ Bashsource vanna_env/bin/activate
 python vanna/app.py
 ```
 
-Step 7.3 — Access the UI
+### Step 7.3 — Access the UI
 
 Open your browser and go to:
 ```
