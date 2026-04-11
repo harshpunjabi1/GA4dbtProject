@@ -237,45 +237,63 @@ All four files below go inside `vanna/`. Right-click the `vanna` folder, select 
 
 ### Step 4.1 — vanna/config.py
 
-```python
-import os
+```import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
-from vanna.google import GoogleGeminiChat
+from vanna.base import VannaBase
 from vanna.chromadb import ChromaDB_VectorStore
+from google import genai
 
-# Navigate one level up from vanna/ to find .env in the project root
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.env'))
 
 
-class GA4Vanna(ChromaDB_VectorStore, GoogleGeminiChat):
-    """
-    Custom Vanna class combining:
-    - ChromaDB_VectorStore: local vector database for training data
-    - GoogleGeminiChat: Gemini LLM for SQL generation
-    """
+class GeminiChat(VannaBase):
+    """Custom Gemini LLM class using google.genai SDK (not the deprecated google.generativeai)."""
+
+    def __init__(self, config=None):
+        VannaBase.__init__(self, config=config)
+        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = "gemini-2.5-flash"
+
+    def system_message(self, message: str) -> dict:
+        return {"role": "user", "parts": [message]}
+
+    def user_message(self, message: str) -> dict:
+        return {"role": "user", "parts": [message]}
+
+    def assistant_message(self, message: str) -> dict:
+        return {"role": "model", "parts": [message]}
+
+    def submit_prompt(self, prompt, **kwargs) -> str:
+        # prompt is a list of message dicts from Vanna
+        # Combine into a single string for simplicity
+        combined = "\n".join(
+            part
+            for msg in prompt
+            for part in (msg["parts"] if isinstance(msg, dict) else [str(msg)])
+        )
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=combined
+        )
+        return response.text
+
+
+class GA4Vanna(ChromaDB_VectorStore, GeminiChat):
     def __init__(self, config=None):
         ChromaDB_VectorStore.__init__(self, config=config)
-        GoogleGeminiChat.__init__(self, config=config)
+        GeminiChat.__init__(self, config=config)
 
 
 def get_vanna_instance():
-    """
-    Initialise and return a configured Vanna instance.
-    Called at the top of every other Vanna script.
-    """
-    # Absolute path to chroma_db folder inside vanna/
     chroma_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chroma_db')
 
     vn = GA4Vanna(config={
-        "api_key": os.getenv("GEMINI_API_KEY"),
-        "model":   "gemini-1.5-flash",   # stable model available on free tier
-        "path":    chroma_path            # ChromaDB key is "path" not "chroma_path"
+        "path": chroma_path
     })
 
-    # cred_file_path is the correct parameter name — not credentials_file, not dataset_id
     vn.connect_to_bigquery(
         project_id=os.getenv("GCP_PROJECT_ID"),
         cred_file_path=os.getenv("BQ_KEYFILE_PATH")
@@ -288,8 +306,7 @@ def get_vanna_instance():
 
 ### Step 4.2 — vanna/test_connection.py
 
-```python
-import os
+```import os
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -298,7 +315,7 @@ from config import get_vanna_instance
 print("Connecting to BigQuery via Vanna...")
 vn = get_vanna_instance()
 
-result = vn.run_sql("SELECT COUNT(*) AS row_count FROM dbt_ga4.fct_purchases")
+result = vn.run_sql("SELECT COUNT(*) AS row_count FROM dbt_ga4_prod_marts.fct_purchases")
 print(f"Connection successful. fct_purchases has {result['row_count'][0]:,} rows.")
 ```
 
@@ -306,8 +323,7 @@ print(f"Connection successful. fct_purchases has {result['row_count'][0]:,} rows
 
 ### Step 4.3 — vanna/train_vanna.py
 
-```python
-"""
+```"""
 Vanna AI Training Script — ShopStream GA4 Project
 
 Trains Vanna with:
@@ -336,13 +352,13 @@ vn = get_vanna_instance()
 # =============================================================================
 # PART 1: DDL TRAINING
 # Tells Vanna the exact column names, data types, and table structure.
-# All table references use fully qualified names: dbt_ga4.table_name
+# All table references use fully qualified names: dbt_ga4_prod_marts.table_name
 # =============================================================================
 
 print("\n[1/3] Training on DDL...")
 
 vn.train(ddl="""
-CREATE TABLE dbt_ga4.fct_purchases (
+CREATE TABLE dbt_ga4_prod_marts.fct_purchases (
     purchase_id             STRING NOT NULL,
     transaction_id          STRING,
     user_pseudo_id          STRING NOT NULL,
@@ -365,7 +381,7 @@ CLUSTER BY traffic_source, device_category;
 """)
 
 vn.train(ddl="""
-CREATE TABLE dbt_ga4.fct_product_interactions (
+CREATE TABLE dbt_ga4_prod_marts.fct_product_interactions (
     interaction_id      STRING NOT NULL,
     event_name          STRING,
     funnel_step         INT64,
@@ -394,7 +410,7 @@ CLUSTER BY event_name, item_category;
 """)
 
 vn.train(ddl="""
-CREATE TABLE dbt_ga4.fct_sessions (
+CREATE TABLE dbt_ga4_prod_marts.fct_sessions (
     session_id               STRING NOT NULL,
     user_pseudo_id           STRING,
     session_date             DATE,
@@ -438,19 +454,19 @@ print("    DDL done (3 tables).")
 print("\n[2/3] Training on documentation...")
 
 vn.train(documentation="""
-Table: dbt_ga4.fct_purchases
+Table: dbt_ga4_prod_marts.fct_purchases
 One row per completed purchase transaction on the Google Merchandise Store.
 Primary table for revenue analysis.
 Use for: total revenue, average order value, transaction counts,
 revenue by traffic channel, revenue by device, revenue by country.
 The revenue column is total transaction value in native currency.
 revenue_usd is total transaction value in USD.
-Join to dbt_ga4.fct_product_interactions on session_id to see item-level detail.
-Always use the fully qualified table name dbt_ga4.fct_purchases in SQL.
+Join to dbt_ga4_prod_marts.fct_product_interactions on session_id to see item-level detail.
+Always use the fully qualified table name dbt_ga4_prod_marts.fct_purchases in SQL.
 """)
 
 vn.train(documentation="""
-Table: dbt_ga4.fct_product_interactions
+Table: dbt_ga4_prod_marts.fct_product_interactions
 One row per product-level event. Covers four event types:
 view_item, add_to_cart, begin_checkout, purchase.
 Use for: purchase funnel analysis, product view counts, add-to-cart rates,
@@ -458,11 +474,11 @@ product conversion rates, category performance.
 funnel_step orders events: 1=view_item, 2=add_to_cart, 3=begin_checkout, 4=purchase.
 revenue is only populated for purchase events (funnel_step=4).
 To calculate conversion rate: SAFE_DIVIDE(sessions at step 4, sessions at step 1).
-Always use the fully qualified table name dbt_ga4.fct_product_interactions in SQL.
+Always use the fully qualified table name dbt_ga4_prod_marts.fct_product_interactions in SQL.
 """)
 
 vn.train(documentation="""
-Table: dbt_ga4.fct_sessions
+Table: dbt_ga4_prod_marts.fct_sessions
 One row per user session. Sessions are reconstructed from GA4 events.
 Use for: session counts, conversion rates by channel, engagement metrics,
 traffic source analysis, device breakdowns.
@@ -471,7 +487,7 @@ Session conversion rate = SUM(converted) / COUNT(session_id).
 session_source and session_medium are session-level attribution (use for channel performance).
 traffic_source and traffic_medium are user-level first-touch attribution (use for acquisition analysis).
 traffic_medium='(none)' means direct traffic.
-Always use the fully qualified table name dbt_ga4.fct_sessions in SQL.
+Always use the fully qualified table name dbt_ga4_prod_marts.fct_sessions in SQL.
 """)
 
 print("    Documentation done (3 tables).")
@@ -495,7 +511,7 @@ vn.train(
         ROUND(SUM(revenue), 2)         AS total_revenue,
         COUNT(DISTINCT user_pseudo_id) AS unique_purchasers,
         COUNT(*)                       AS total_transactions
-    FROM dbt_ga4.fct_purchases
+    FROM dbt_ga4_prod_marts.fct_purchases
     GROUP BY 1, 2
     ORDER BY total_revenue DESC
     """
@@ -509,7 +525,7 @@ vn.train(
         COUNT(*)                            AS total_sessions,
         SUM(converted)                      AS converted_sessions,
         ROUND(SUM(converted) / COUNT(*), 4) AS conversion_rate
-    FROM dbt_ga4.fct_sessions
+    FROM dbt_ga4_prod_marts.fct_sessions
     WHERE session_medium IS NOT NULL
     GROUP BY session_medium
     ORDER BY conversion_rate DESC
@@ -525,7 +541,7 @@ vn.train(
         COUNT(DISTINCT session_id)     AS sessions,
         COUNT(DISTINCT user_pseudo_id) AS unique_users,
         SUM(converted)                 AS conversions
-    FROM dbt_ga4.fct_sessions
+    FROM dbt_ga4_prod_marts.fct_sessions
     GROUP BY 1, 2
     ORDER BY sessions DESC
     LIMIT 20
@@ -541,7 +557,7 @@ vn.train(
         COUNT(DISTINCT user_pseudo_id)  AS unique_purchasers,
         COUNT(*)                        AS transactions,
         ROUND(AVG(revenue), 2)          AS avg_order_value
-    FROM dbt_ga4.fct_purchases
+    FROM dbt_ga4_prod_marts.fct_purchases
     GROUP BY week
     ORDER BY week
     """
@@ -557,7 +573,7 @@ vn.train(
         event_name                     AS funnel_step_name,
         COUNT(DISTINCT user_pseudo_id) AS unique_users,
         COUNT(DISTINCT session_id)     AS unique_sessions
-    FROM dbt_ga4.fct_product_interactions
+    FROM dbt_ga4_prod_marts.fct_product_interactions
     GROUP BY 1, 2
     ORDER BY funnel_step
     """
@@ -571,7 +587,7 @@ vn.train(
             funnel_step,
             event_name,
             COUNT(DISTINCT session_id) AS sessions_at_step
-        FROM dbt_ga4.fct_product_interactions
+        FROM dbt_ga4_prod_marts.fct_product_interactions
         GROUP BY 1, 2
     ),
     with_previous AS (
@@ -604,7 +620,7 @@ vn.train(
         funnel_step,
         event_name,
         COUNT(DISTINCT session_id) AS sessions
-    FROM dbt_ga4.fct_product_interactions
+    FROM dbt_ga4_prod_marts.fct_product_interactions
     GROUP BY 1, 2, 3
     ORDER BY device_category, funnel_step
     """
@@ -621,7 +637,7 @@ vn.train(
         ROUND(SUM(revenue), 2)     AS total_revenue,
         SUM(quantity)              AS units_sold,
         COUNT(DISTINCT session_id) AS purchase_sessions
-    FROM dbt_ga4.fct_product_interactions
+    FROM dbt_ga4_prod_marts.fct_product_interactions
     WHERE event_name = 'purchase'
     GROUP BY 1, 2
     ORDER BY total_revenue DESC
@@ -640,7 +656,7 @@ vn.train(
             COUNT(DISTINCT CASE WHEN event_name = 'view_item'   THEN session_id END) AS views,
             COUNT(DISTINCT CASE WHEN event_name = 'add_to_cart' THEN session_id END) AS adds,
             COUNT(DISTINCT CASE WHEN event_name = 'purchase'    THEN session_id END) AS purchases
-        FROM dbt_ga4.fct_product_interactions
+        FROM dbt_ga4_prod_marts.fct_product_interactions
         GROUP BY 1, 2, 3
     )
     SELECT
@@ -667,7 +683,7 @@ vn.train(
         COUNT(DISTINCT session_id) AS transactions,
         SUM(quantity)              AS units_sold,
         ROUND(AVG(price), 2)       AS avg_price
-    FROM dbt_ga4.fct_product_interactions
+    FROM dbt_ga4_prod_marts.fct_product_interactions
     WHERE event_name = 'purchase'
       AND item_category IS NOT NULL
     GROUP BY item_category
@@ -696,8 +712,7 @@ Next step:
 
 ### Step 4.4 — vanna/vanna_demo.py
 
-```python
-"""
+```"""
 Vanna AI Demo — ShopStream GA4 Project
 
 Runs 5 pre-defined questions then lets you enter your own.
