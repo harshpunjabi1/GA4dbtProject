@@ -231,6 +231,10 @@ When this finishes, two things have happened:
 - Mac/Linux: `~/.dbt/profiles.yml`
 - Windows: `C:\Users\YourName\.dbt\profiles.yml`
 
+🖥️ TERMINAL — run this:
+bash
+`open -a "Visual Studio Code" ~/.dbt/profiles.yml`
+
 Replace the entire contents of the file with the following. Substitute your actual GCP project ID and your actual keyfile path.
 
 **Mac/Linux:**
