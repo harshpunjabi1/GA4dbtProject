@@ -275,8 +275,7 @@ WITH events AS (
     transaction_id,
     purchase_revenue,
     purchase_revenue_usd,
-    unique_items,
-    total_item_quantity
+    unique_items
   FROM {{ ref('stg_ga4__events') }}
   WHERE event_name IN ('view_item', 'add_to_cart', 'begin_checkout', 'purchase')
 
@@ -329,7 +328,6 @@ SELECT
   e.purchase_revenue,
   e.purchase_revenue_usd,
   e.unique_items,
-  e.total_item_quantity,
   e.device_category,
   e.device_operating_system,
   e.geo_country,
